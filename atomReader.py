@@ -97,18 +97,27 @@ class spectraReader():
         
         self.__clusters = []
         
-        en = self.energies[:,:lastpk].reshape(-1,1)
-        inten = self.intensities[:,:lastpk].reshape(-1,1)
+        en = self.energies[:,:lastpk]
+        inten = self.intensities[:,:lastpk]
         
         # Outliers
         outlier_idx = self.labels == -1
-        self.outliers = (ovrlps[outlier_idx], en[outlier_idx], inten[outlier_idx])
+        out_ei_idx = outlier_idx.reshape(en.shape)
+        self.outliers = (ovrlps[outlier_idx], en[out_ei_idx], inten[out_ei_idx])
         
         # Clusters
         for label in self.label_names:
-            label_idx = self.labels == label
+            label_idx = (self.labels == label).reshape(en.shape)
             
-            self.__clusters.append((ovrlps[label_idx], en[label_idx], inten[label_idx]))
+            label_ovlp = []
+            label_en = []
+            label_inten = []
+            for row_idx, ovlp_r, en_r, inten_r in zip(label_idx,self.ovlps[:,:lastpk,:],en,inten):
+                label_ovlp.append(ovlp_r[row_idx].tolist())
+                label_en.append(en_r[row_idx].tolist())
+                label_inten.append(inten_r[row_idx].tolist())
+            
+            self.__clusters.append((label_ovlp, label_en, label_inten))
                 
         
         ### Plot ###
@@ -145,9 +154,11 @@ class spectraReader():
         plt.figure()
         
         for label in self.label_names:
+            energy = np.concatenate(self.get_cl_energy(label))
+            inten = np.concatenate(self.get_cl_intensity(label))
             plt.scatter(
-                    self.get_cl_energy(label),
-                    self.get_cl_intensity(label)**2,
+                    energy,
+                    inten**2,
                     c = palette[label],
                     label = label,
                     s= 5

@@ -40,6 +40,33 @@ class Trident():
         self.params = {'energies': 'linear','intensities':'kernel','GS_energy':'kernel'}
         self.params.update(params)
         
+    def prepareFeatures(PAS_, energies_, intensities_, GS_energy_ = None):
+        
+        hs_GS = GS_energy_ != None
+        
+        ## Copy
+        energies = copy.deepcopy(energies_)
+        intensities = copy.deepcopy(intensities_)
+        if hs_GS:
+            GS_energy = copy.deepcopy(GS_energy_)
+        else:
+            GS_energy = None
+        X = np.concatenate( (copy.deepcopy(PAS_), np.ones((PAS_.shape[0],1))), axis= 1)
+        
+        ##Shuffle
+        permutation = np.random.permutation(PAS_.shape[0])
+        
+        X = X[permutation]
+        energies = energies[permutation]
+        intensities = intensities[permutation]
+        if hs_GS:
+            GS_energy = np.array([GS_energy[permutation]]).T
+            
+        ##Scaler
+        scaler_PAS = StandardScaler()
+        X_scaled = scaler_PAS.fit_transform(X)
+        return X_scaled, X, energies, intensities, GS_energy
+    
     def fit(self, PAS_, energies_, intensities_, GS_energy_ = None):
         '''
         Fit Pariwise-atomic-seperations (PAS) to estimators of XAS spectra and grounds state energies
@@ -53,27 +80,8 @@ class Trident():
         '''
         self.hs_GS = GS_energy_ != None
         
-        ## Copy
-        energies = copy.deepcopy(energies_)
-        intensities = copy.deepcopy(intensities_)
-        if self.hs_GS:
-            GS_energy = copy.deepcopy(GS_energy_)
-        X = np.concatenate( (copy.deepcopy(PAS_), np.ones((PAS_.shape[0],1))), axis= 1)
-        
-        
-        ##Shuffle
-        permutation = np.random.permutation(PAS_.shape[0])
-        
-        X = X[permutation]
-        energies = energies[permutation]
-        intensities = energies[permutation]
-        if self.hs_GS:
-            GS_energy = np.array([GS_energy[permutation]]).T
-        
-        
-        ##Scaler
-        scaler_PAS = StandardScaler()
-        X_scaled = scaler_PAS.fit_transform(X)
+        ## Preprocess inputs
+        X_scaled, X, energies, intensities, GS_energy = Trident.prepareFeatures(PAS_,energies_,intensities_,GS_energy_)
         
         
         ##Search
