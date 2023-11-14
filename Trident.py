@@ -29,143 +29,115 @@ class Trident():
     '''
     Estimator/Generator fit on structures to target XAS and ground state energy
     '''
-    def __init__(self,params={}):
+    def __init__(self,params={},e_cv_params_={},i_cv_params_={}):
         '''
         Estimator/Generator fit on structures to target XAS and ground state energy
         
         Parameters\t
         ‾‾‾‾‾‾‾‾\t
-        params: dict of model to be used, default= {'energies':'linear','intensities':'kernel','GS_energy':'kernel'}
+        params: dict of model to be used, default= {'energies':'linear','intensities':'kernel','GS_energy':'kernel'}\t
+        e_cv_params: dict of cross-validation parameters ranges for energies estimator\t
+        i_cv_params: dict of cross-validation parameters ranges for intensities estimator\t
         '''
         self.params = {'energies': 'linear','intensities':'kernel','GS_energy':'kernel'}
         self.params.update(params)
         
-    def prepareFeatures(PAS_, energies_, intensities_, GS_energy_ = None):
         
-        hs_GS = GS_energy_ != None
         
-        ## Copy
-        energies = copy.deepcopy(energies_)
-        intensities = copy.deepcopy(intensities_)
-        if hs_GS:
-            GS_energy = copy.deepcopy(GS_energy_)
-        else:
-            GS_energy = None
-        X = np.concatenate( (copy.deepcopy(PAS_), np.ones((PAS_.shape[0],1))), axis= 1)
+        e_cv_params = {
+                'alpha' : np.logspace(0,1),
+                # 'gamma' : np.logspace(-1,4)
+            }
+        e_cv_params.update(e_cv_params_)
+        i_cv_params = {
+                'alpha' : np.logspace(4,9),
+                'gamma' : np.logspace(-6,-1)
+            }
+        i_cv_params.update(i_cv_params_)
+        
+        self.CV_params = {
+                'energies' : e_cv_params,
+                'intensities' : i_cv_params
+            }
+        
+        self.pipe= {}
+        
+    def prepare_data(x,y):
+        
+        y = copy.deepcopy(y)
+        X = np.concatenate( (copy.deepcopy(x), np.ones((x.shape[0],1))), axis= 1)
         
         ##Shuffle
-        permutation = np.random.permutation(PAS_.shape[0])
+        permutation = np.random.permutation(x.shape[0])
         
         X = X[permutation]
-        energies = energies[permutation]
-        intensities = intensities[permutation]
-        if hs_GS:
-            GS_energy = np.array([GS_energy[permutation]]).T
-            
-        ##Scaler
-        scaler_PAS = StandardScaler()
-        X_scaled = scaler_PAS.fit_transform(X)
-        return X_scaled, X, energies, intensities, GS_energy
+        y = y[permutation]
+        
+        return X, y
     
-    def fit(self, PAS_, energies_, intensities_, GS_energy_ = None):
+    def fit_single(self, X_, target_, label):
+        
+        X, target = Trident.prepare_data(X_, target_)
+        
+        ## Scaler ##
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(X)
+        
+        scaler_target = StandardScaler()
+        target = scaler_target.fit_transform(target)
+        
+        ## Cross-Validation ##
+        
+        match self.params[label]:
+            case 'Ridge':
+                model = Ridge
+            case 'KernelRidge':
+                model = KernelRidge
+
+        Cross_validator = GridSearchCV(
+            model(),
+            param_grid=self.CV_params[label],
+        )
+        
+        Cross_validator.fit(X_scaled,target)
+        
+        ## Verbage ##
+        print(f"{label} Estimator R2 score: {Cross_validator.best_score_:.3f}")
+        print(f"{label} Estimator params: {Cross_validator.best_params_}", end= '\n\n')
+        
+        
+        ## Assignment ##
+        estimator = model(**Cross_validator.best_params_)
+        
+        self.pipe[label] = Pipeline([
+                        ('Scaler',StandardScaler()),
+                        ('Estimator', estimator)
+                        ])
+        
+        self.pipe[label].fit(X,target)
+        
+        pass
+    
+    def fit(self, PAS_, energies_= None, intensities_= None, GS_energy_ = None):
         '''
         Fit Pariwise-atomic-seperations (PAS) to estimators of XAS spectra and grounds state energies
         
         Parameters\t
         ‾‾‾‾‾‾‾‾\t
         PAS_: Array of PAS (n_samples,n_features)\t
-        data_["energies"]: Array of XAS stick energy positions (n_samples, n_sticks)\t
-        data_["intensities"]: Array of XAS stick Intensities (n_samples, n_sticks)\t
-        data_["GS_energy"]: total ground state energies in units of eV (n_samples,)\t
+        energies_: Array of XAS stick energy positions (n_samples, n_sticks)\t
+        intensities_: Array of XAS stick Intensities (n_samples, n_sticks)\t
+        GS_energy_: total ground state energies in units of eV (n_samples,)\t
         '''
-        self.hs_GS = GS_energy_ != None
         
-        ## Preprocess inputs
-        X_scaled, X, energies, intensities, GS_energy = Trident.prepareFeatures(PAS_,energies_,intensities_,GS_energy_)
-        
-        
-        ##Search
-        alpha_range= np.logspace(-6,-1)
-        gamma_range= np.logspace(-5, -1)
-
-        ## Model Defs
-        model = {}
-        CV_params = {}
-        targets = ['energies','intensities','GS_energy'] if  self.hs_GS else ['energies','intensities']
-        for target in targets:
-            match self.params[target]:
-                case 'linear':
-                    model[target] = Ridge
-                    CV_params[target] = {"alpha": alpha_range}
-                case 'kernel':
-                    model[target]= KernelRidge
-                    CV_params[target] = {"alpha": alpha_range, "gamma": gamma_range, 'kernel' : ['rbf']}
-        
-        
-        ## Cross-Validation
-        CV_energy = GridSearchCV(
-            model['energies'](),
-            param_grid=CV_params['energies'],
-        )
-        CV_intensity = GridSearchCV(
-            model['intensities'](),
-            param_grid=CV_params['intensities'],
-        )
-        if  self.hs_GS:
-            CV_GS_energy = GridSearchCV(
-                model['GS_energy'](),
-                param_grid=CV_params['GS_energy'],
-            )
-        
-        
-        ## Model Fitting
-        CV_energy.fit(X_scaled, energies)
-        CV_intensity.fit(X_scaled, intensities)
-        if  self.hs_GS:
-            CV_GS_energy.fit(X_scaled, GS_energy)
+        if np.all(energies_ != None):
+            self.fit_single(PAS_, energies_, 'energies')
+        if np.all(intensities_ != None):
+            self.fit_single(PAS_, intensities_, 'intensities')
+        if np.all(GS_energy_ != None):
+            self.fit_single(PAS_, GS_energy_, 'GS_energy')
             
-        
-        
-        ##Verbage
-        print(f"Energy Estimator R2 score: {CV_energy.best_score_:.3f}")
-        print(f"Intensity Estimator R2 score: {CV_intensity.best_score_:.3f}")
-        if  self.hs_GS:
-            print(f"GS_Energy Estimator R2 score: {CV_GS_energy.best_score_:.3f}\n")
-        
-        print(f"Energy Estimator params: {CV_energy.best_params_}")
-        print(f"Intensity Estimator params: {CV_intensity.best_params_}")
-        if  self.hs_GS:
-            print(f"GS_Energy Estimator params: {CV_GS_energy.best_params_}")
-        
-        ##Selection
-        self.energies_estimator_ = model['energies'](**CV_energy.best_params_)
-        self.intensities_estimator_ = model['intensities'](**CV_intensity.best_params_)
-        if  self.hs_GS:
-            self.GS_energy_estimator_ = model['GS_energy'](**CV_GS_energy.best_params_)
-        
-        self.pipe = {
-            'energies' : Pipeline([
-                            ('Scaler',StandardScaler()),
-                            ('Estimator', self.energies_estimator_)
-                            ]),
-            'intensities' : Pipeline([
-                            ('Scaler',StandardScaler()),
-                            ('Estimator', self.intensities_estimator_)
-                            ]),
-            'GS_energy' : Pipeline([
-                            ('Scaler',StandardScaler()),
-                            ('Estimator', self.GS_energy_estimator_)
-                            ]) if  self.hs_GS else None
-            } 
-
-        
-        self.pipe['energies'].fit(X, energies)
-        self.pipe['intensities'].fit(X, intensities)
-        if  self.hs_GS:
-            self.pipe['GS_energy'].fit(X, GS_energy)
-
-
-
+            
     def score(self, PAS_test, data_test, metric = 'R2', verbose= False):
         '''
         Return dict of estimator scores.

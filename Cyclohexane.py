@@ -12,21 +12,30 @@ import numpy as np
 #%%
 from atomReader import atomReader
 
-atoms = read("ali_cyclohexane.xyz", index= ':')
+reference_structs = read("C6H12_references.xyz", index= ':')
+atoms = read("cyclohexane_lammps.xyz", index= ':')
 
-molecules = atomReader(atoms)
+molecules = atomReader(atoms, reference_structs)
 
 molecules.projection()
 
 #%%
 from atomReader import spectraReader
 
-spectra = spectraReader('asap_traj_fine.pkl')
-labels = spectra.projection(25, dim= 2)
+target_struct = 1
+
+spectra = spectraReader('lammps_traj_THISISTHEONE.pkl', labels= molecules.labels==target_struct)
 
 
-energies = spectra.energies[:,:25]
-intensities = spectra.intensities[:,:25]
+#%%
+spectra_cluster_params = {
+                'min_cluster_size' : 10,
+                'min_samples' : 7,
+                'allow_single_cluster' : True,
+                'cluster_selection_epsilon' : 0.2
+    }
+
+labels = spectra.projection(lastpk= 25, cluster_params_= spectra_cluster_params)
 
 #%% Label validation
 
@@ -43,48 +52,48 @@ for i, struct in enumerate(labels):
     for lab in spectra.label_names:
         struct_label_count[i,lab] = struct.tolist().count(lab)
 
-valid_count = np.count_nonzero(np.all(struct_label_count == standard_count,axis=1))
+#%% Feature Sectioning
 
-#%% 
-from sklearn.model_selection import GridSearchCV
-from sklearn.kernel_ridge import KernelRidge
-
-cl = 0
+## Index for target XAS cluster ######## IMPORTANT : First peak is not always indexed at 0. Make sure to check the XAS figure
+cl = 1 ### this is the only transformation or search parameter that may need to be changed in current analysis ### Will update following proof of concept
 
 mask = struct_label_count[:,cl] == standard_count[cl]
 
-X_cl_train = molecules.distances[mask]
+X_cl_train = molecules.get_cluster_distances(target_struct)[mask]
 energy_train = np.array([inner for inner in spectra.get_cl_energy(cl) if len(inner) == standard_count[cl]])
 inten_train = np.array([inner for inner in spectra.get_cl_intensity(cl) if len(inner) == standard_count[cl]])
-#%%
-
-##Search
-alpha_range= np.logspace(-4,1, num=10)
-gamma_range= np.logspace(-8, -4, num= 10)
-
-## Cross-Validation
-CV_energy = GridSearchCV(
-    KernelRidge(),
-    param_grid={"alpha": alpha_range, "gamma": gamma_range, 'kernel' : ['rbf']},
-)
-CV_intensity = GridSearchCV(
-    KernelRidge(),
-    param_grid={"alpha": alpha_range, "gamma": gamma_range, 'kernel' : ['rbf']},
-)
-
-## Model Fitting
-CV_energy.fit(X_cl_train, energy_train)
-CV_intensity.fit(X_cl_train, inten_train)
-
-print(f"Energy Estimator R2 score: {CV_energy.best_score_:.3f}")
-print(f"Intensity Estimator R2 score: {CV_intensity.best_score_:.3f}")
-print(f"Energy Estimator params: {CV_energy.best_params_}")
-print(f"Intensity Estimator params: {CV_intensity.best_params_}")
 
 #%%
 from Trident import Trident
 
-trident = Trident().fit(molecules.distances, energies[:,0], intensities[:,0])
+estimators = {
+        'energies': 'KernelRidge',
+        'intensities':'KernelRidge'
+        }
+
+e_cv_params = {
+        'alpha' : np.logspace(-5,-3,10),
+        'gamma' : np.logspace(-5,-3,10),
+        'kernel' : ['rbf']
+    }
+i_cv_params = {
+        'alpha' : np.logspace(-3,1,20),
+        'gamma' : np.logspace(-7,-2,20),
+        'kernel' : ['rbf']
+    }
+
+trident = Trident(
+            params= estimators, 
+            e_cv_params_= e_cv_params, 
+            i_cv_params_= i_cv_params
+            )
+
+#%%
+trident.fit(
+                PAS_= X_cl_train, 
+                energies_= energy_train,
+                intensities_= inten_train
+                )
 
 
 
