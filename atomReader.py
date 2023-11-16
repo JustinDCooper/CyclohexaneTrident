@@ -54,7 +54,8 @@ class atomReader():
         self.umap_params = {
                 'n_neighbors' : 5,
                 'min_dist' : 0.0,
-                'n_components' : 2
+                'n_components' : 2,
+                'random_state' : 0
             }
         self.umap_params.update(**umap_params_)
         
@@ -69,7 +70,7 @@ class atomReader():
                 'min_cluster_size' : 10,
                 'min_samples' : 7,
                 'allow_single_cluster' : True,
-                'cluster_selection_epsilon' : 0.3
+                'cluster_selection_epsilon' : 0.5
             }
         self.cluster_params.update(**cluster_params_)
         

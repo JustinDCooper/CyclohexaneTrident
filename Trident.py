@@ -23,6 +23,8 @@ import copy
 import sea_urchin.clustering.metrics as met
 from scipy.constants import physical_constants
 
+import pandas as pd
+
 #%% Main
 
 class Trident():
@@ -61,6 +63,9 @@ class Trident():
             }
         
         self.pipe= {}
+        self.target_scaler= {}
+        self.estimator_params= {}
+        self.estimator_R2= {}
         
     def prepare_data(x,y):
         
@@ -83,8 +88,8 @@ class Trident():
         scaler = StandardScaler()
         X_scaled = scaler.fit_transform(X)
         
-        scaler_target = StandardScaler()
-        target = scaler_target.fit_transform(target)
+        self.target_scaler[label] = StandardScaler()
+        target = self.target_scaler[label].fit_transform(target)
         
         ## Cross-Validation ##
         
@@ -105,7 +110,8 @@ class Trident():
         print(f"{label} Estimator R2 score: {Cross_validator.best_score_:.3f}")
         print(f"{label} Estimator params: {Cross_validator.best_params_}", end= '\n\n')
         
-        
+        self.estimator_R2[label] = Cross_validator.best_score_
+        self.estimator_params[label] = Cross_validator.best_params_
         ## Assignment ##
         estimator = model(**Cross_validator.best_params_)
         
@@ -190,12 +196,11 @@ class Trident():
         return['GS_energy'] : Ground state energy predictions (n_samples,)
         '''
         X = np.concatenate( (copy.deepcopy(PAS_), np.ones((PAS_.shape[0],1))), axis= 1)
-        
-        prediction = {
-            'energies' : self.pipe['energies'].predict(X),
-            'intensities' : self.pipe['intensities'].predict(X),
-            'GS_energy' : self.pipe['GS_energy'].predict(X) if self.hs_GS else None
-            }
+        prediction = {}
+        for key in self.pipe:
+            standardized_predictions = self.pipe[key].predict(X)
+            prediction[key] = self.target_scaler[key].inverse_transform(standardized_predictions).reshape((X.shape[0],-1))
+
         
         return prediction
 
@@ -260,4 +265,4 @@ class Trident():
         print('Confidence: {:.2f}'.format(np.count_nonzero(valid_mask)/len(valid_mask)))
         
         return energies, weighted_intensities, atom_batch, prediction
-            
+        
