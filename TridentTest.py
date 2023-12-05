@@ -13,6 +13,7 @@ import pandas as pd
 from sklearn.linear_model import Ridge
 from sklearn.kernel_ridge import KernelRidge
 from sklearn.model_selection import GridSearchCV
+from sklearn.utils import shuffle
 
 import copy
 import sea_urchin.alignement.align as ali
@@ -30,35 +31,67 @@ from sklearn.pipeline import Pipeline
 #%% MAIN
 
 class Trident():
+    '''
+    Estimator/Generator fit on structures to target XAS and ground state energy
+    '''
     def __init__(self, e_cv= {}, i_cv= {}):
+        '''
+        Parameters
+        ----------
+        e_cv : dict, optional
+            energy cross validation parameters to be fed to GridSearchCV. The default is {}.
+        i_cv : dict, optional
+            intensity cross validation parameters to be fed to GridSearchCV. The default is {}.
+        '''
         self.atoms = info_struct()
         self.XAS = info_struct()
         self.set_cv_params(e_cv,i_cv)
-        self.model_tree = TreeNode()
+        self.model_tree = TreeNode('Root')
     
     def set_cv_params(self,models={},e_cv={},i_cv={}):
+        '''
+        Manually Set Cross-Validation ranges for energy and intensity models
+
+        Parameters
+        ----------
+        models : dict, optional
+            Target estimator models. The default is {'energy' : Ridge, 'intensity': KernelRidge}.
+        e_cv : dict, optional
+            energy cross validation parameters to be fed to GridSearchCV. The default is {}.
+        i_cv : dict, optional
+            intensity cross validation parameters to be fed to GridSearchCV. The default is {}.
+        '''
         self.model_params = {
                 'energy' : Ridge,
                 'intensity' : KernelRidge
             }
         self.model_params.update(models)
-        e_cv_params = {
-                'alpha' : np.logspace(0,1,5),
-                # 'gamma' : np.logspace(-1,4)
-            }
-        e_cv_params.update(e_cv)
-        i_cv_params = {
-                'alpha' : np.logspace(4,9,5),
-                # 'gamma' : np.logspace(-6,-1)
-            }
-        i_cv_params.update(i_cv)
+        
+        # All models need alpha range
+        alpha_range = {'alpha' : np.logspace(-1,5)}
         
         self.CV_params = {
-                'energy' : e_cv_params,
-                'intensity' : i_cv_params
+                'energy' : alpha_range | e_cv,
+                'intensity' : alpha_range | i_cv
             }
     
     def fit(self,atoms_,energies_,intensities_,ovlps_, atom_ref=None):
+        '''
+        Assign reference data to model and fit estimators to structural and spectral data.
+
+        Parameters
+        ----------
+        atoms_ : list (n_samples)
+            list of atoms objects.
+        energies_ : array (n_samples,n_transitions)
+            array of transition energies from XAS.
+        intensities_ : array (n_samples,n_transitions)
+            array of transition intensities from XAS.
+        ovlps_ : array (n_samples,n_transitions,n_VVO)
+            VVO projection of each transition of each spectral sample.
+        atom_ref : list
+            reference structures to align atoms to. The default is None.
+        '''
         self.set_atoms(atoms_,ref= atom_ref)
         self.set_XAS(energies_, intensities_, ovlps_)
         
@@ -68,136 +101,99 @@ class Trident():
         self.fit_estimators()
         
     def fit_estimators(self):
-        X = self.atoms.sep_scaler.transform(self.atoms.seperations)
-        
-        # Intercept
-        X = np.concatenate( (X, np.ones((X.shape[0],1))), axis= 1)
-        
+        '''
+        Fit model tree to set atomic/spectral data and their projections.
+
+        Returns
+        -------
+        None.
+
+        '''
+        # Scale inputs
+        X_all = self.atoms.sep_scaler.transform(self.atoms.seperations)
         # Loop Through Atomic CLusters
         for atomic_cluster_label, transition_label_set in enumerate(self.XAS.labels):
-        # for atomic_cluster_label, transition_label_set in [(1,self.XAS.labels[1])]:
             
+            atomic_cluster_mask = self.atomic_cluster(atomic_cluster_label)
+            
+            # Unique non-outlier labels
             valid_labels = set(transition_label_set.reshape(-1))
             valid_labels.discard(-1)
             
-            ## How many occurances of a label in each structure
-            label_count = np.array([np.sum(transition_label_set == label, axis= 1) for label in valid_labels]).T
-            
-            ## The standard number of occurances of each cluster
-            unique, counts = np.unique(label_count, axis= 0, return_counts= True)
-            standard_count = unique[counts.argmax()]            
+            ## The most common frequency of each label in each structure
+            standard_count = standardCount(transition_label_set,valid_labels)
             
             
-            atomic_cluster = self.atomic_cluster(atomic_cluster_label)
-            X_atomic_cl = X[atomic_cluster]
-            y_atomic_cl= {
-                'energy' : self.XAS.energies[atomic_cluster],
-                'intensity' : self.XAS.intensities[atomic_cluster]
-            }
-            
-            branch_node = TreeNode(atomic_cluster_label)
+            atomic_cluster_node = TreeNode(atomic_cluster_label)
             
             # Loop Through Transition State Clusters
             for transition_label in valid_labels:
-                
-                leaf_node = LeafEstimator((atomic_cluster_label,transition_label))
-                
                 target_peaks = transition_label_set == transition_label
+                
                 ## Final extraction of features and targets
                 valid_samples = np.sum(target_peaks, axis= 1) == standard_count[transition_label]
-                X_ts_cl = X_atomic_cl[valid_samples]
-                
-                # Shuffle
-                permutation = np.random.permutation(X_ts_cl.shape[0])
-                X_feature = X_ts_cl[permutation]
+                X = X_all[atomic_cluster_mask][valid_samples]
                 
                 # Mask of relevant peaks
                 t_mask = np.array([valid_samples]).T*target_peaks
-
-                for target in y_atomic_cl:
-                    y = y_atomic_cl[target][t_mask].reshape((-1,standard_count[transition_label]))
-                    
-                    # Target Scalers
-                    leaf_node.scaler[target] = StandardScaler().fit(y)
                 
-                    y = leaf_node.scaler[target].transform(y)
+                y = {
+                    'energy' : self.XAS.energies[atomic_cluster_mask][t_mask].reshape((-1,standard_count[transition_label])),
+                    'intensity' : self.XAS.intensities[atomic_cluster_mask][t_mask].reshape((-1,standard_count[transition_label]))
+                }
                 
-                    # Shuffle
-                    y = y[permutation]
-                    
-                    # Cross Validation
-                    Cross_validator = GridSearchCV(
-                        self.model_params[target](),
-                        param_grid=self.CV_params[target],
-                    )
-                    Cross_validator.fit(X_feature,y)
-                    ## Verbage ##
-                    print(f"Cluster {atomic_cluster_label},{transition_label} {target} Estimator R2 score: {Cross_validator.best_score_:.3f}")
-                    print(f"Cluster {atomic_cluster_label},{transition_label} {target} Estimator params: {Cross_validator.best_params_}", end= '\n\n')
-                    estimator = self.model_params[target](**Cross_validator.best_params_)
-                    
-                    pipe = Pipeline([
-                                ('Scaler',StandardScaler()),
-                                ('Estimator', estimator)
-                                ])
-                    pipe.fit(X_feature,y)
-                    leaf_node.pipeline[target] = pipe
-                            
+                X, y['energy'], y['intensity'] = shuffle(X,y['energy'],y['intensity'])
                 
-                branch_node.add_child(leaf_node)
+                leaf_node = LeafEstimator((atomic_cluster_label,transition_label))
+                leaf_node.fit(
+                        X= X,
+                        y= y, 
+                        model_params= self.model_params, 
+                        CV_params= self.CV_params
+                        )
                 
-            self.model_tree.add_child(branch_node)
+                atomic_cluster_node.add_child(leaf_node)
+                
+            self.model_tree.add_child(atomic_cluster_node)
                 
     def predict(self, atoms_):
+        '''
+        Predict XAS of input atoms
+
+        Parameters
+        ----------
+        atoms_ : list[Atoms]
+            list of atoms to predict XAS of.
+
+        Returns
+        -------
+        energy_result : Dataframe (n_samples,n_transitions)
+            Dataframe of transition energies.
+        intensity_result : Dataframe (n_samples,n_transitions)
+            Dataframe of transition intensities.
+
+        '''
         
-        mutable_atoms = copy.deepcopy(atoms_)
+        atoms = copy.deepcopy(atoms_)
         
-        mutable_atoms = Trident.align_atoms(mutable_atoms, self.atoms.ref)
+        atoms = Trident.align_atoms(atoms, self.atoms.ref)
         
-        X = met.get_distances(mutable_atoms)
+        X = met.get_distances(atoms)
         
         u = self.atoms.umap.transform(X)
-        molecular_labels, strengths = hdbscan.approximate_predict(self.atoms.hdbscan, u)
+        molecular_labels, _ = hdbscan.approximate_predict(self.atoms.hdbscan, u)
         molecular_labels_set = set(molecular_labels.reshape(-1))
         molecular_labels_set.discard(-1)
         
         # Intercept
         X = np.concatenate( (X, np.ones((X.shape[0],1))), axis= 1)
         X_df = pd.DataFrame(X)
-        X_df['Atomic Label'] = molecular_labels
         
-
-        energy_df_list = []
-        intensity_df_list = []
+        energies_pred, intensities_pred = self.model_tree.predict(X_df, molecular_labels)
         
-        peak_count = 0
-        for mole_label in molecular_labels_set:
-            X_molecular_df = X_df[X_df['Atomic Label'] == mole_label].iloc[:,:-1]
-            
-            energy_df = pd.DataFrame(index=X_molecular_df.index)
-            intensity_df = pd.DataFrame(index=X_molecular_df.index)
-            
-            for estimator in self.model_tree[mole_label]:
-                Y_cl = estimator.predict(X_molecular_df)
-                
-                peaks_per_cluster = Y_cl['energy'].shape[1]
-                
-                for peak_idx in range(peaks_per_cluster):
-                    energy_df[peak_count + peak_idx] = Y_cl['energy'][:,peak_idx]
-                    intensity_df[peak_count + peak_idx] = Y_cl['intensity'][:,peak_idx]
-                    
-                peak_count += peaks_per_cluster    
-            
-            energy_df_list.append(energy_df)
-            intensity_df_list.append(intensity_df)
-            
-        energy_result = pd.concat(energy_df_list)
-        intensity_result = pd.concat(intensity_df_list)
-        
-        return energy_result, intensity_result
+        return energies_pred, intensities_pred
         
     def align_atoms(atoms, ref):
-        
         ## Align ##
         alignment = {
                 "type"      : "fastoverlap",
@@ -222,6 +218,21 @@ class Trident():
         return mutable_atoms
         
     def set_atoms(self, atoms_, ref=None):
+        '''
+        Establish model references to atom training set
+
+        Parameters
+        ----------
+        atoms_ : list[Atoms]
+            List of atom set to train model on.
+        ref : list[Atoms], optional
+            If not None atoms are aligned to the structures in ref. The default is None.
+
+        Returns
+        -------
+        None.
+
+        '''
         ## Set Internal Reference to atoms ##
         mutable_atoms = copy.deepcopy(atoms_)
         
@@ -235,15 +246,31 @@ class Trident():
         self.atoms.sep_scaler = StandardScaler().fit(self.atoms.seperations)
         
     def fit_atoms_projection(self, umap_params_= {}, cluster_params_= {}):
+        '''
+        Establish projection and clustering of atomic structure training set
+
+        Parameters
+        ----------
+        umap_params_ : dict, optional
+            Desired parameters of the umap model. The default is {}.
+        cluster_params_ : dict, optional
+            Desired parameters of the HDBSCAN model. The default is {}.
+
+        Returns
+        -------
+        None.
+
+        '''
         assert hasattr(self.atoms, 'atoms'), "Atoms must be set prior to calling fit_atoms_projection"
+        
         ### Projection ###
         umap_params = {
                 'n_neighbors' : 5,
                 'min_dist' : 0.0,
                 'n_components' : 2,
                 'random_state' : 3
-            }
-        umap_params.update(**umap_params_)
+            } | umap_params_
+        # umap_params.update(**umap_params_)
         
         atom_umap_model = umap.UMAP(**umap_params).fit(self.atoms.seperations)
         self.atoms.umap = atom_umap_model
@@ -258,8 +285,8 @@ class Trident():
                 'allow_single_cluster' : True,
                 # 'cluster_selection_epsilon' : 0.5,
                 'prediction_data' : True
-            }
-        cluster_params.update(**cluster_params_)
+            } | cluster_params_
+        # cluster_params.update(**cluster_params_)
         
         atom_cluster_model = hdbscan.HDBSCAN(**cluster_params).fit(u)
         self.atoms.hdbscan = atom_cluster_model
@@ -267,6 +294,14 @@ class Trident():
         self.atoms.labels = atom_cluster_model.labels_
         
     def show_atom_projection(self):
+        '''
+        Visualize atomic structure projections
+
+        Returns
+        -------
+        None.
+
+        '''
         assert hasattr(self.atoms, 'labels'), "Model must first be fit to the atoms"
         ### Cluster Colors ###
         true_label_count = len(np.unique(self.atoms.labels[self.atoms.labels != -1]))
@@ -294,13 +329,44 @@ class Trident():
         plt.legend()
         
     def set_XAS(self,energies_,intensities_,ovlps_):
+        '''
+        Establish model references to XAS training set
+
+        Parameters
+        ----------
+        energies_ : array (n_samples,n_transitions)
+            Transitions energy training data.
+        intensities_ : array (n_samples,n_transitions)
+            Transitions intensity training data.
+        ovlps_ : array (n_samples,n_transitions,n_VVO)
+            Projections of each transition onto VVO basis.
+
+        Returns
+        -------
+        None.
+
+        '''
         ## Set Internal Reference to XAS ##
         self.XAS.energies = copy.deepcopy(energies_)
         self.XAS.intensities = copy.deepcopy(intensities_)
         self.XAS.ovlps = copy.deepcopy(ovlps_)
         
     def fit_XAS_projection(self, umap_params_ = {}, cluster_params_ = {}):
-        
+        '''
+        Establish projection and clustering of XAS training set
+
+        Parameters
+        ----------
+        umap_params_ : dict, optional
+            Desired parameters of the umap model. The default is {}.
+        cluster_params_ : dict, optional
+            Desired parameters of the HDBSCAN model. The default is {}.
+
+        Returns
+        -------
+        None.
+
+        '''
         ## Arrange transition ovlps ##
         LIVO_count = self.XAS.ovlps.shape[2]
         ordered_ovlps = self.XAS.ovlps.reshape((-1,LIVO_count))
@@ -345,7 +411,19 @@ class Trident():
             self.XAS.labels.append(hdbscan_model.labels_.reshape((-1,transition_count)))
         
     def show_XAS_projection(self, struct = None):
-        
+        '''
+        Visualize XAS projection and clustering
+
+        Parameters
+        ----------
+        struct : int, optional
+            If None displays XAS projections for all atomic clusters, otherwise displays that for only struct atomic cluster. The default is None.
+
+        Returns
+        -------
+        None.
+
+        '''
         # Plot all 
         if struct == None:
             for atom_label in np.unique(self.atoms.labels[self.atoms.labels != -1]):
@@ -395,24 +473,61 @@ class Trident():
         
         
 class TreeNode:
-    def __init__(self, data= None):
+    def __init__(self, ID, data= None):
+        self.ID = ID
         self.data = data
         self.children = []
 
     def add_child(self, child_node):
         self.children.append(child_node)
+        
+    def predict(self, X, atomic_labels = None):
+        
+        # If we are the root we need to seperate the atomic clusters
+        if self.ID == 'Root':
+            XAS_enerlist, XAS_intenlist = [], []
+            for branch in self.children:
+                cluster_mask = atomic_labels == branch.ID
+                
+                # If one cluster is not present in the prediction set continue
+                if np.all(cluster_mask == False):
+                    continue
+                
+                XAS_en, XAS_inten = branch.predict(X[cluster_mask])
+                XAS_enerlist.append(XAS_en)
+                XAS_intenlist.append(XAS_inten)
+            
+            # We recieve entire spectra so we just need to put them into the same df
+            XAS_energies = pd.concat(XAS_enerlist,axis= 0)
+            XAS_intensities = pd.concat(XAS_intenlist, axis= 0)
+            
+            return XAS_energies, XAS_intensities
+        else: # If we are an atomic branch we simply need to predict each cluster and group them to form a spectra
+            enerlist, intenlist = [], []
+            for estimator in self.children:
+                energy, intensity = estimator.predict(X)
+                enerlist.append( pd.DataFrame(energy, index= X.index))
+                intenlist.append( pd.DataFrame(intensity, index= X.index))
+            
+            energies = pd.concat(enerlist,axis= 1)
+            intensities = pd.concat(intenlist,axis= 1)
+            return energies, intensities            
+                
             
     def __iter__(self):
-        for child in self.children:
-            if type(child) == TreeNode:
-                for leaf in child.children:
-                    yield leaf
-            else:
-                yield child
+        self.current = -1
+        return self
+    
+    def __next__(self):
+        self.current += 1
+        
+        if self.current >= len(self.children):
+            raise StopIteration
+            
+        return self.children[self.current]
                 
     def __getitem__(self,index):
         return self.children[index]
-        
         
 class LeafEstimator():
     
@@ -421,24 +536,96 @@ class LeafEstimator():
         self.pipeline = {}
         self.scaler = {}
         
+    def fit(self, X, y, model_params, CV_params):
+        '''
+        Fit cluster specific regression model
+
+        Parameters
+        ----------
+        X : Structural data (n_samples,n_features)
+            Input to be regressed.
+        y : dict {'energy' 'intensity'}
+            dictionary of target (n_samples, n_transitions) training values.
+        model_params : dict {'energy' 'intensity'}
+            Dictionary of models to be used.
+        CV_params : dict
+            CV range dictionary.
+
+        Returns
+        -------
+        None.
+
+        '''
+        
+        X = StandardScaler().fit_transform(X)
+        X = np.concatenate( (X, np.ones((X.shape[0],1))), axis= 1)
+        
+        for target, values in y.items():
+            
+            self.scaler[target] = StandardScaler().fit(values)
+            values = self.scaler[target].transform(values)
+            
+            # Cross Validation
+            Cross_validator = GridSearchCV(
+                model_params[target](),
+                param_grid= CV_params[target],
+            )
+            
+            Cross_validator.fit(X,values)
+            ## Verbage ##
+            print(f"Cluster {self.ID} {target} Estimator R2 score: {Cross_validator.best_score_:.3f}")
+            print(f"Cluster {self.ID} {target} Estimator params: {Cross_validator.best_params_}", end= '\n\n')
+            estimator = model_params[target](**Cross_validator.best_params_)
+        
+            pipe = Pipeline([
+                        ('Scaler',StandardScaler()),
+                        ('Estimator', estimator)
+                        ])
+            pipe.fit(X,values)
+            
+            self.pipeline[target] = pipe
+        
     def predict(self, X):
         y = {}
         for (target, pipe), scaler in zip(self.pipeline.items(),self.scaler.values()):
             y_scaled = pipe.predict(X)
             y[target] = scaler.inverse_transform(y_scaled)
-            
-        return y
         
-        
-        
-        
-        
+            print(type(y[target]))
+        return y.values()
         
         
 class info_struct():
     pass        
         
-        
+
+#%% Helper Methods
+
+def standardCount(label_arr, labels = None):
+    '''
+    Most Common Number of occurances of each label in each row of label_arr
+
+    Parameters
+    ----------
+    labels : array (n_labels)
+        List of target labels. If None assumes all unique elements of label_arr
+    label_arr : array (n_rows, n_col)
+        reference array to find most common elements.
+
+    Returns
+    -------
+    List of most common frequency of each label (n_labels).
+
+    '''
+    
+    ## How many occurances of a label in each structure
+    label_count = np.array([np.sum(label_arr == label, axis= 1) for label in labels]).T
+    
+    ## The standard number of occurances of each cluster
+    unique, counts = np.unique(label_count, axis= 0, return_counts= True)
+    standard_count = unique[counts.argmax()]
+    
+    return standard_count
         
         
         

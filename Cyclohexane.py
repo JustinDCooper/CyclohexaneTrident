@@ -32,7 +32,7 @@ spectra_cluster_params = {
                 'allow_single_cluster' : True,
                 'cluster_selection_epsilon' : 0.2
     }
-
+#%%
 spectra_labels = spectra.projection(lastpk= 25, cluster_params_= spectra_cluster_params)
 
 #%% Label validation
@@ -58,7 +58,7 @@ import dill
 
 #%%
 for kernel in sklearn.metrics.pairwise.PAIRWISE_KERNEL_FUNCTIONS:
-    
+# for kernel in ['rbf']:
 
     result_energies = []
     result_intensities = []

@@ -144,7 +144,8 @@ class spectraReader():
         self.umap_params = {
                 'n_neighbors' : 20,
                 'min_dist' : 0.0,
-                'n_components' : 2
+                'n_components' : 2,
+                'random_state' : 15
             }
         
         self.umap_params.update(**umap_params_)
