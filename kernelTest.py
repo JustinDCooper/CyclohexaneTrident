@@ -41,6 +41,7 @@ from TridentTest import Trident
 from sklearn.kernel_ridge import KernelRidge
 
 #%%
+prec = 50
 
 for kernel in sklearn.metrics.pairwise.PAIRWISE_KERNEL_FUNCTIONS:
     if kernel in ['additive_chi2', 'chi2']:
@@ -54,30 +55,32 @@ for kernel in sklearn.metrics.pairwise.PAIRWISE_KERNEL_FUNCTIONS:
         }
 
     e_cv_params = {
-            'alpha' : np.logspace(-5,1,50),
+            'alpha' : np.logspace(-5,3,prec),
             'kernel' : [kernel]
         }
     i_cv_params = {
-            'alpha' : np.logspace(-3,1,50),
+            'alpha' : np.logspace(-5,3,prec),
             'kernel' : [kernel]
         }
     
     if kernel in ['rbf', 'laplacian', 'polynomial', 'exponential', 'chi2', 'sigmoid','additive_chi2']:
-        e_cv_params['gamma'] = np.logspace(-7,2,50)
-        i_cv_params['gamma'] = np.logspace(-7,2,50)
+        e_cv_params['gamma'] = np.logspace(-7,2,prec)
+        i_cv_params['gamma'] = np.logspace(-7,2,prec)
     if kernel in ['polynomial','sigmoid']:
         e_cv_params['coef0'] = np.logspace(-1,5,10)
         i_cv_params['coef0'] = np.logspace(-1,5,20)
     if kernel == 'polynomial':
         e_cv_params['degree'] = np.arange(1,5)
-        i_cv_params['degree'] = np.logspace(1,5)
+        i_cv_params['degree'] = np.arange(1,5)
 
     trident.set_cv_params(models,e_cv=e_cv_params,i_cv=i_cv_params)
 
     trident.fit(atoms_train,e_train,i_train,ovlps_train,atom_ref=reference_structs)
-    #%%
+
+    ## Make Predictions
     e_pred, i_pred = trident.predict(atoms_test)
-    #%%
+    
+    ## Export to pkl
     e_pred.to_pickle(f'KernelAnalysis/{kernel}_energy_prediction')
     i_pred.to_pickle(f'KernelAnalysis/{kernel}_intensity_prediction')
     

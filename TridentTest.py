@@ -34,7 +34,7 @@ class Trident():
     '''
     Estimator/Generator fit on structures to target XAS and ground state energy
     '''
-    def __init__(self, e_cv= {}, i_cv= {}):
+    def __init__(self,models, e_cv= {}, i_cv= {}):
         '''
         Parameters
         ----------
@@ -45,7 +45,7 @@ class Trident():
         '''
         self.atoms = info_struct()
         self.XAS = info_struct()
-        self.set_cv_params(e_cv,i_cv)
+        self.set_cv_params(models, e_cv, i_cv)
         self.model_tree = TreeNode('Root')
     
     def set_cv_params(self,models={},e_cv={},i_cv={}):
@@ -182,8 +182,6 @@ class Trident():
         
         u = self.atoms.umap.transform(X)
         molecular_labels, _ = hdbscan.approximate_predict(self.atoms.hdbscan, u)
-        molecular_labels_set = set(molecular_labels.reshape(-1))
-        molecular_labels_set.discard(-1)
         
         # Intercept
         X = np.concatenate( (X, np.ones((X.shape[0],1))), axis= 1)
@@ -498,20 +496,29 @@ class TreeNode:
                 XAS_intenlist.append(XAS_inten)
             
             # We recieve entire spectra so we just need to put them into the same df
-            XAS_energies = pd.concat(XAS_enerlist,axis= 0)
-            XAS_intensities = pd.concat(XAS_intenlist, axis= 0)
+            XAS_energies = pd.concat(XAS_enerlist,axis= 0, keys= range(len(XAS_enerlist)), names= ["Molecular Cluster", "Sample"]).sort_values(by="Sample")
+            XAS_intensities = pd.concat(XAS_intenlist, axis= 0, keys= range(len(XAS_enerlist)), names= ["Molecular Cluster", "Sample"]).sort_values(by="Sample")
             
             return XAS_energies, XAS_intensities
         else: # If we are an atomic branch we simply need to predict each cluster and group them to form a spectra
+        
             enerlist, intenlist = [], []
             for estimator in self.children:
-                energy, intensity = estimator.predict(X)
-                enerlist.append( pd.DataFrame(energy, index= X.index))
-                intenlist.append( pd.DataFrame(intensity, index= X.index))
+                assert estimator.ID[0] == self.ID
+                energy, intensity = estimator.predict(X) # Predict transitions for each cluster
+                
+                cluster_energies = pd.DataFrame(energy, index= X.index, columns= None)
+                cluster_intensities = pd.DataFrame(intensity, index= X.index, columns= None)
+                
+                enerlist.append( cluster_energies)
+                intenlist.append( cluster_intensities)
             
+            ## Concatenate clusters togeter and reset headers
             energies = pd.concat(enerlist,axis= 1)
+            energies.columns = range(len(energies.columns))
             intensities = pd.concat(intenlist,axis= 1)
-            return energies, intensities            
+            intensities.columns = range(len(intensities.columns))
+            return energies, intensities            ## Return XAS
                 
             
     def __iter__(self):
@@ -534,7 +541,7 @@ class LeafEstimator():
     def __init__(self,ID):
         self.ID = ID
         self.pipeline = {}
-        self.scaler = {}
+        self.target_scaler = {}
         
     def fit(self, X, y, model_params, CV_params):
         '''
@@ -557,41 +564,40 @@ class LeafEstimator():
 
         '''
         
-        X = StandardScaler().fit_transform(X)
         X = np.concatenate( (X, np.ones((X.shape[0],1))), axis= 1)
+        structure_scaler = StandardScaler().fit(X)
+        X_scaled = structure_scaler.transform(X)
         
         for target, values in y.items():
             
-            self.scaler[target] = StandardScaler().fit(values)
-            values = self.scaler[target].transform(values)
+            self.target_scaler[target] = StandardScaler().fit(values)
+            values = self.target_scaler[target].transform(values)
             
             # Cross Validation
             Cross_validator = GridSearchCV(
                 model_params[target](),
                 param_grid= CV_params[target],
             )
+            Cross_validator.fit(X_scaled,values)
             
-            Cross_validator.fit(X,values)
             ## Verbage ##
             print(f"Cluster {self.ID} {target} Estimator R2 score: {Cross_validator.best_score_:.3f}")
             print(f"Cluster {self.ID} {target} Estimator params: {Cross_validator.best_params_}", end= '\n\n')
-            estimator = model_params[target](**Cross_validator.best_params_)
+            
         
             pipe = Pipeline([
-                        ('Scaler',StandardScaler()),
-                        ('Estimator', estimator)
+                        ('Scaler',structure_scaler),
+                        ('Estimator', Cross_validator.best_estimator_)
                         ])
-            pipe.fit(X,values)
+
             
             self.pipeline[target] = pipe
         
     def predict(self, X):
         y = {}
-        for (target, pipe), scaler in zip(self.pipeline.items(),self.scaler.values()):
+        for (target, pipe), scaler in zip(self.pipeline.items(),self.target_scaler.values()):
             y_scaled = pipe.predict(X)
             y[target] = scaler.inverse_transform(y_scaled)
-        
-            print(type(y[target]))
         return y.values()
         
         
