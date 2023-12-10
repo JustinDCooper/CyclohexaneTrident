@@ -15,6 +15,7 @@ from sklearn.model_selection import train_test_split
 
 from TridentTest import Trident
 from sklearn.kernel_ridge import KernelRidge
+# from sklearn.linear_model import Ridge
 
 #%%
 
@@ -60,14 +61,19 @@ trident = Trident(
             i_cv=i_cv_params
             )
 
-trident.fit(atoms_train,e_train,i_train,ovlps_train,atom_ref=reference_structs)
+trident.fit(
+        atoms_= atoms_train,
+        XAS_en= e_train,
+        XAS_inten= i_train,
+        XAS_ovlps= ovlps_train,
+        ref=reference_structs)
 
 #%%
 
 e_pred_df, i_pred_df = trident.predict(atoms_test)
 #%%
 
-from sklearn.metrics import r2_score, mean_squared_error
+from sklearn.metrics import mean_squared_error
 
 e_true = e_test
 i_true = i_test
