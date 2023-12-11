@@ -22,8 +22,8 @@ import sea_urchin.clustering.metrics as met
 import umap
 import hdbscan
 
-# import seaborn as sns
-# import matplotlib.pyplot as plt
+import seaborn as sns
+import matplotlib.pyplot as plt
 
 from sklearn.preprocessing import StandardScaler
 
@@ -81,6 +81,16 @@ class Trident():
         self.model_tree.fit()
     
     def init_tree(self, atoms_, ref):
+        '''
+        Initialize Internal Model Tree with unalligned atoms and reference structures.
+
+        Parameters
+        ----------
+        atoms_ : list(Atoms)
+            Unalligned atoms to be fit to spectral features.
+        ref : list(Atoms)
+            Reference Structures to allign atom_ to.
+        '''
         ## Set Internal Reference to atoms ##
         mutable_atoms = copy.deepcopy(atoms_)
         self.ref = ref
@@ -125,99 +135,9 @@ class Trident():
                                                 alignment
                                                 )
         return mutable_atoms
-    
-
-    #%% Show
-    # def show_atom_projection(self):
-    #     '''
-    #     Visualize atomic structure projections
-
-    #     Returns
-    #     -------
-    #     None.
-
-    #     '''
-    #     assert hasattr(self.atoms, 'labels'), "Model must first be fit to the atoms"
-    #     ### Cluster Colors ###
-    #     true_label_count = len(np.unique(self.atoms.labels[self.atoms.labels != -1]))
-    #     palette = sns.color_palette('Paired', true_label_count)
         
-    #     cluster_colors = [palette[x] if x >= 0
-    #                       else (0.5, 0.5, 0.5)
-    #                       for x in self.atoms.labels]
-        
-    #     cluster_member_colors = np.array([sns.desaturate(x, p) for x, p in
-    #                      zip(cluster_colors, self.atoms.hdbscan.probabilities_)])
-        
-    #     ### Plot Projections ###
-        
-    #     u = self.atoms.umap.transform(self.atoms.seperations)
-        
-    #     plt.figure()
-    #     for atom_label in np.unique(self.atoms.labels):
-    #         mask = self.atoms.labels == atom_label
-    #         plt.scatter(u[mask,0], u[mask,1], c = cluster_member_colors[mask], alpha= 0.6, s= 12, label = atom_label)
-
-    #     plt.title('Atom UMAP Projection')
-    #     plt.xlabel('U1')
-    #     plt.ylabel('U2')
-    #     plt.legend()
-    # def show_XAS_projection(self, struct = None):
-    #     '''
-    #     Visualize XAS projection and clustering
-
-    #     Parameters
-    #     ----------
-    #     struct : int, optional
-    #         If None displays XAS projections for all atomic clusters, otherwise displays that for only struct atomic cluster. The default is None.
-
-    #     Returns
-    #     -------
-    #     None.
-
-    #     '''
-    #     # Plot all 
-    #     if struct == None:
-    #         for atom_label in np.unique(self.atoms.labels[self.atoms.labels != -1]):
-    #             self.show_XAS_projection(atom_label)
-    #         return
-        
-    #     cluster_XAS_labels = self.XAS.labels[struct].reshape(-1,)
-        
-    #     # Palette
-    #     true_label_count = len(np.unique(cluster_XAS_labels[cluster_XAS_labels != -1]))
-    #     palette = sns.color_palette('Paired', true_label_count)
-        
-    #     cluster_colors = [palette[x] if x >= 0
-    #                       else (0.5, 0.5, 0.5)
-    #                       for x in cluster_XAS_labels]
-        
-        
-    #     cluster_member_colors = np.array([sns.desaturate(x, p) for x, p in
-    #                      zip(cluster_colors, self.XAS.hdbscan[struct].probabilities_)])
-        
-    #     ### Plot Projections ###
-        
-    #     # Project
-    #     LIVO_count = self.XAS.ovlps.shape[2]
-    #     labeled_ovlps = self.XAS.ovlps[self.atomic_cluster(struct)].reshape((-1,LIVO_count))
-    #     scaled_labeled_ovlps = self.XAS.ovlp_scaler.transform(labeled_ovlps)
-        
-    #     u = self.XAS.umap[struct].transform(scaled_labeled_ovlps)
-        
-    #     # Plot
-    #     plt.figure()
-    #     for atom_label in np.unique(cluster_XAS_labels):
-    #         mask = cluster_XAS_labels == atom_label
-    #         plt.scatter(u[mask,0], u[mask,1], c = cluster_member_colors[mask], alpha= 0.6, s= 12, label = atom_label)
-
-    #     plt.title(f'Atomic Structure {struct} LIVO Overlap UMAP Projection')
-    #     plt.xlabel('U1')
-    #     plt.ylabel('U2')
-    #     plt.legend()
-        
-#%% TreeNodeNew
-class TreeNodeNew:
+#%% TreeNode
+class TreeNode:
     projection_params = {
             'n_neighbors' : 5,
             'min_dist' : 0.0,
@@ -240,11 +160,11 @@ class TreeNodeNew:
         self.children.append(child)
         
     def fit_projection(self, data, params):
-        self.projection_params = TreeNodeNew.projection_params | params
+        self.projection_params = TreeNode.projection_params | params
         self.projector = umap.UMAP(**self.projection_params).fit(data)
     
     def fit_cluster(self, data, params):
-        self.cluster_params = TreeNodeNew.cluster_params | params
+        self.cluster_params = TreeNode.cluster_params | params
         
         u = self.projector.transform(data)
         
@@ -256,16 +176,44 @@ class TreeNodeNew:
     
     def __len__(self):
         return len(self.children)
+    
+    def plot_projections(self, feature):
+        labels = self.labels.reshape(-1)
+        ### Cluster Colors ###
+        true_label_count = len(set(labels[labels != -1]))
+        palette = sns.color_palette('Paired', true_label_count)
+        
+        cluster_colors = [palette[x] if x >= 0
+                          else (0.5, 0.5, 0.5)
+                          for x in labels]
+        
+        cluster_member_colors = np.array([sns.desaturate(x, p) for x, p in
+                          zip(cluster_colors, self.clusterer.probabilities_)])
+        
+        ### Plot Projections ###
+        
+        u = self.projector.transform(feature)
+        
+        plt.figure()
+        for atom_label in set(labels):
+            mask = labels == atom_label
+            plt.scatter(u[mask,0], u[mask,1], c = cluster_member_colors[mask], alpha= 0.6, s= 12, label = atom_label)
+
+        plt.title(f'{self.ID} UMAP Projection')
+        plt.xlabel('U1')
+        plt.ylabel('U2')
+        plt.legend()
+        pass
         
 #%% RootNode
-class RootNode(TreeNodeNew):
+class RootNode(TreeNode):
     def __init__(self, seperations, ID='Root'):
         self.seperations_scaler = StandardScaler().fit(seperations)
         self.__seperations = self.seperations_scaler.transform(seperations)
         self.__XAS_energies = None
         self.__XAS_intensities = None
         self.__XAS_ovlps = None
-        TreeNodeNew.__init__(self, ID)
+        TreeNode.__init__(self, ID)
     
     def setModelParams(self, estimator_params= {}, cv_params= {}):
         self.estimator_params = {
@@ -287,12 +235,12 @@ class RootNode(TreeNodeNew):
             branch.fit()
         
     def fit_projection(self, params= {}):        
-        TreeNodeNew.fit_projection(self, 
+        TreeNode.fit_projection(self, 
                                    data= self.__seperations,
                                    params= params)
     
     def fit_cluster(self, params= {}):
-        TreeNodeNew.fit_cluster(self, 
+        TreeNode.fit_cluster(self, 
                                 data= self.__seperations,
                                 params= params)
         
@@ -330,6 +278,9 @@ class RootNode(TreeNodeNew):
         XAS_intensities.sort_index(inplace= True)
         
         return XAS_energies, XAS_intensities
+    
+    def plot_projections(self):
+        TreeNode.plot_projections(self, self.seperations)
             
     #%% Property Methods (Private Attributes)
     @property
@@ -350,7 +301,7 @@ class RootNode(TreeNodeNew):
 
 #%% BranchNode
 
-class BranchNode(TreeNodeNew):
+class BranchNode(TreeNode):
     def fit(self):
         self.fit_projection()
         self.fit_cluster()
@@ -362,7 +313,7 @@ class BranchNode(TreeNodeNew):
         sample_count, transition_count, LIVO_count = self.XAS_ovlps.shape           #For Reformatting ovlps
         individual_ovlps = np.reshape(self.XAS_ovlps, ( sample_count * transition_count, LIVO_count )) # Reformated OVLPS
         
-        TreeNodeNew.fit_projection(self, 
+        TreeNode.fit_projection(self, 
                                    data= individual_ovlps, 
                                    params= params)
     
@@ -370,7 +321,7 @@ class BranchNode(TreeNodeNew):
         sample_count, transition_count, LIVO_count = self.XAS_ovlps.shape           #For Reformatting ovlps
         individual_ovlps = np.reshape(self.XAS_ovlps, ( sample_count * transition_count, LIVO_count ))
         
-        TreeNodeNew.fit_cluster(self, 
+        TreeNode.fit_cluster(self, 
                                 data= individual_ovlps, 
                                 params= params)
         
@@ -402,6 +353,42 @@ class BranchNode(TreeNodeNew):
         XAS_intensities_pred.columns = range(len(XAS_intensities_pred.columns))
         
         return XAS_energies_pred, XAS_intensities_pred
+    
+    def plot_projections(self):
+        sample_count, transition_count, LIVO_count = self.XAS_ovlps.shape
+        individual_ovlps = np.reshape(self.XAS_ovlps, ( sample_count * transition_count, LIVO_count )) # Reformated OVLPS
+        TreeNode.plot_projections(self, individual_ovlps)
+        
+    def plot_spectra(self, samples = None):        
+        if samples == None:
+            samples = np.full(self.labels.shape[0], True)
+        elif type(samples) == int:
+            samples = [samples]
+        if type(samples) == list:
+            temp = np.full(self.labels.shape[0], False)
+            temp[samples] = True
+            samples= temp
+            
+        labels = self.labels[samples].reshape(-1)
+        energies = self.XAS_energies[samples].reshape(labels.shape)
+        intensities = self.XAS_intensities[samples].reshape(labels.shape)
+        
+        ### Cluster Colors ###
+        true_label_count = len(set(labels[labels != -1]))
+        palette = sns.color_palette('Paired', true_label_count)
+        
+        cluster_colors = [palette[x] if x >= 0
+                          else (0.5, 0.5, 0.5)
+                          for x in labels]
+        
+        cluster_member_colors = np.array([sns.desaturate(x, p) for x, p in
+                          zip(cluster_colors, self.clusterer.probabilities_)])
+        
+        plt.figure()
+        for atom_label in set(labels):
+            mask = (labels == atom_label)
+            plt.scatter(energies[mask], intensities[mask], c = cluster_member_colors[mask], alpha= 0.6, s= 12, label = atom_label)
+        
         
     
     #%% Property Methods (Private Attributes)

@@ -55,4 +55,4 @@ trident.fit(atoms,enerlist,intenlist,ovlps,atom_ref=reference_structs)
 
 #%%
 
-y = trident.predict(atoms[:50])
+e_pred, i_pred = trident.predict(atoms[:50])

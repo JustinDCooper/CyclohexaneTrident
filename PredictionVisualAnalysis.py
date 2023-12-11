@@ -13,8 +13,9 @@ import dill
 
 from sklearn.model_selection import train_test_split
 
-from TridentTest import Trident
+from Trident1 import Trident
 from sklearn.kernel_ridge import KernelRidge
+import matplotlib.pyplot as plt
 # from sklearn.linear_model import Ridge
 
 #%%
@@ -85,8 +86,6 @@ e_mse = mean_squared_error(e_true.T, e_pred.T, multioutput= 'raw_values')
 i_mse = mean_squared_error(i_true.T, i_pred.T, multioutput= 'raw_values')
 
 #%%
-import matplotlib.pyplot as plt
-#%%
 
 def plot_spectra(ax, energy, intensity, labeling= True, **kwargs):
     e_min = np.min(energy)
@@ -126,35 +125,25 @@ axs = fig.subplot_mosaic([["Best E MSE", "Best I MSE"],["Worst E MSE", "Worst I 
 for (label, ax), error in zip(axs.items(),[e_mse.min(),i_mse.min(),e_mse.max(),i_mse.max()]):
     ax.set_title(f"{label}, MSE: {error:.4f}")
     
-plot_spectra(axs["Best E MSE"], e_true[e_mse.argmin()],i_true[e_mse.argmin()], c= 'k', label= "True")
+plot_spectra(axs["Best E MSE"], e_true[e_mse.argmin()],i_true[e_mse.argmin()], c= 'orange', label= "True")
 plot_spectra(axs["Best E MSE"], e_pred[e_mse.argmin()],i_pred[e_mse.argmin()], c= 'purple', label= "Predicted")
+plt.legend()
 
-
-plot_spectra(axs["Best I MSE"], e_true[i_mse.argmin()],i_true[i_mse.argmin()], c= 'k', label= "True")
+plot_spectra(axs["Best I MSE"], e_true[i_mse.argmin()],i_true[i_mse.argmin()], c= 'orange', label= "True")
 plot_spectra(axs["Best I MSE"], e_pred[i_mse.argmin()],i_pred[i_mse.argmin()], c= 'purple', label= "Predicted")
+plt.legend()
 
 
 
-plot_spectra(axs["Worst E MSE"], e_true[e_mse.argmax()],i_true[e_mse.argmax()], c= 'k', label= "True")
+plot_spectra(axs["Worst E MSE"], e_true[e_mse.argmax()],i_true[e_mse.argmax()], c= 'orange', label= "True")
 plot_spectra(axs["Worst E MSE"], e_pred[e_mse.argmax()],i_pred[e_mse.argmax()], c= 'purple', label= "Predicted")
+plt.legend()
 
 
-plot_spectra(axs["Worst I MSE"], e_true[i_mse.argmax()],i_true[i_mse.argmax()], c= 'k', label= "True")
+plot_spectra(axs["Worst I MSE"], e_true[i_mse.argmax()],i_true[i_mse.argmax()], c= 'orange', label= "True")
 plot_spectra(axs["Worst I MSE"], e_pred[i_mse.argmax()],i_pred[i_mse.argmax()], c= 'purple', label= "Predicted")
 
 plt.legend()
-
-# e_R2 = r2_score(e_true, e_pred, multioutput= 'raw_values')
-# i_R2 = r2_score(i_true, i_pred, multioutput= 'raw_values')
-
-# fig2 = plt.figure(figsize= (10,7), layout='constrained')
-# axs2 = fig2.subplot_mosaic([["Intensity R^2"],["Energy R^2"]])
-# axs2["Intensity R^2"].set_title("Intensity R^2")
-# axs2["Intensity R^2"].plot(i_R2)
-
-# axs2["Energy R^2"].set_title("Energy R^2")
-# axs2["Energy R^2"].plot(i_R2)
-
 
 
 
