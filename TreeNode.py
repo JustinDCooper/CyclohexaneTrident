@@ -81,3 +81,7 @@ class TreeNode:
         plt.ylabel('U2')
         plt.legend()
         pass
+    
+    def __iter__(self):
+        for child in self.children:
+            yield child

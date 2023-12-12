@@ -24,7 +24,7 @@ class BranchNode(TreeNode):
         self.fit_cluster()
         self.partition()
         for estimator in self.children:
-            estimator.fit()
+            estimator.fit()            
     
     def fit_projection(self, params= {}):
         sample_count, transition_count, LIVO_count = self.XAS_ovlps.shape           #For Reformatting ovlps
@@ -75,8 +75,9 @@ class BranchNode(TreeNode):
         sample_count, transition_count, LIVO_count = self.XAS_ovlps.shape
         individual_ovlps = np.reshape(self.XAS_ovlps, ( sample_count * transition_count, LIVO_count )) # Reformated OVLPS
         TreeNode.plot_projections(self, individual_ovlps)
-        
-    def plot_spectra(self, samples = None):        
+
+#%% Visuals
+    def plot_clusters(self, samples = None):        
         if samples == None:
             samples = np.full(self.labels.shape[0], True)
         elif type(samples) == int:
@@ -112,6 +113,7 @@ class BranchNode(TreeNode):
     # Could be made virtual but I think it would make it harder to read
     @property
     def labels(self):
+        # return np.tile(np.arange(self.XAS_energies.shape[1]),(self.XAS_energies.shape[0],1))
         return np.reshape(self.clusterer.labels_,self.XAS_energies.shape)
     @property
     def seperations(self):
@@ -125,3 +127,11 @@ class BranchNode(TreeNode):
     @property
     def XAS_ovlps(self):
         return self.root.XAS_ovlps[self.root.labels == self.ID]
+    @property
+    def atoms(self):
+        return [self.root.atoms[i] for i in range(len(self.root.atoms)) if (self.root.labels == self.ID)[i]]
+    
+    #%% Dunder
+    
+    def __getitem__(self, index) -> LeafEstimator:
+        return TreeNode.__getitem__(self, index)

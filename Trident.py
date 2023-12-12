@@ -71,7 +71,7 @@ class Trident():
                             )
         self.model_tree.fit()
     
-    def init_tree(self, atoms_, ref):
+    def init_tree(self, atoms_, ref=None, align= {}):
         '''
         Initialize Internal Model Tree with unalligned atoms and reference structures.
 
@@ -81,16 +81,19 @@ class Trident():
             Unalligned atoms to be fit to spectral features.
         ref : list(Atoms)
             Reference Structures to allign atom_ to.
+        align : dict
+            Allignment parameters
         '''
         ## Set Internal Reference to atoms ##
         mutable_atoms = copy.deepcopy(atoms_)
         self.ref = ref
         
         ## Align ##
-        mutable_atoms = Trident.align_atoms(mutable_atoms, ref)
+        mutable_atoms = Trident.align_atoms(mutable_atoms, ref, align)
         seperations = met.get_distances(mutable_atoms)
         
         self.model_tree = RootNode(seperations)
+        self.model_tree.atoms= mutable_atoms
         self.model_tree.setModelParams(estimator_params= self.model_params, cv_params= self.CV_params)
         
     def predict(self, atoms_):
@@ -103,13 +106,13 @@ class Trident():
         
         return prediction_energies, prediction_intensities
         
-    def align_atoms(atoms, ref):
+    def align_atoms(atoms, ref, align= {}):
         ## Align ##
         alignment = {
                 "type"      : "fastoverlap",
                 "permute" : "elements",
                 "inversion" : False
-                }
+                } | align
         
         # Align
         if ref == None:

@@ -13,7 +13,7 @@ import dill
 
 from sklearn.model_selection import train_test_split
 
-from Trident1 import Trident
+from Trident import Trident
 from sklearn.kernel_ridge import KernelRidge
 import matplotlib.pyplot as plt
 # from sklearn.linear_model import Ridge
@@ -46,13 +46,13 @@ models = {
     }
 
 e_cv_params = {
-        'alpha' : np.logspace(-5,3,10),
-        'gamma' : np.logspace(-7,2,10),
+        'alpha' : np.logspace(-5,3,30),
+        'gamma' : np.logspace(-7,2,30),
         'kernel' : ['rbf']
     }
 i_cv_params = {
-        'alpha' : np.logspace(-5,3,10),
-        'gamma' : np.logspace(-7,2,10),
+        'alpha' : np.logspace(-5,3,30),
+        'gamma' : np.logspace(-7,2,30),
         'kernel' : ['rbf']
     }
 
@@ -99,6 +99,7 @@ def plot_spectra(ax, energy, intensity, labeling= True, **kwargs):
         ax.set_ylabel('Intensity')
     
     ax.plot(erange,spec, **kwargs)
+    ax.plot([e_min-2*dE,e_max+2*dE],[0,0], c='k', linewidth = 1)
 
 def stick_to_spectra(E,osc,sigma,x):
     matrix = E.ndim > 1
@@ -127,26 +128,36 @@ for (label, ax), error in zip(axs.items(),[e_mse.min(),i_mse.min(),e_mse.max(),i
     
 plot_spectra(axs["Best E MSE"], e_true[e_mse.argmin()],i_true[e_mse.argmin()], c= 'orange', label= "True")
 plot_spectra(axs["Best E MSE"], e_pred[e_mse.argmin()],i_pred[e_mse.argmin()], c= 'purple', label= "Predicted")
-plt.legend()
+plot_spectra(axs["Best E MSE"], e_true.mean(axis=0),i_true.mean(axis=0), c= 'grey', label= "Mean", alpha=0.3, linestyle='dashed')
 
 plot_spectra(axs["Best I MSE"], e_true[i_mse.argmin()],i_true[i_mse.argmin()], c= 'orange', label= "True")
 plot_spectra(axs["Best I MSE"], e_pred[i_mse.argmin()],i_pred[i_mse.argmin()], c= 'purple', label= "Predicted")
-plt.legend()
-
+plot_spectra(axs["Best I MSE"], e_true.mean(axis=0),i_true.mean(axis=0), c= 'grey', label= "Mean", alpha=0.3, linestyle='dashed')
 
 
 plot_spectra(axs["Worst E MSE"], e_true[e_mse.argmax()],i_true[e_mse.argmax()], c= 'orange', label= "True")
 plot_spectra(axs["Worst E MSE"], e_pred[e_mse.argmax()],i_pred[e_mse.argmax()], c= 'purple', label= "Predicted")
-plt.legend()
-
+plot_spectra(axs["Worst E MSE"], e_true.mean(axis=0),i_true.mean(axis=0), c= 'grey', label= "Mean", alpha=0.3, linestyle='dashed')
 
 plot_spectra(axs["Worst I MSE"], e_true[i_mse.argmax()],i_true[i_mse.argmax()], c= 'orange', label= "True")
 plot_spectra(axs["Worst I MSE"], e_pred[i_mse.argmax()],i_pred[i_mse.argmax()], c= 'purple', label= "Predicted")
+plot_spectra(axs["Worst I MSE"], e_true.mean(axis=0),i_true.mean(axis=0), c= 'grey', label= "Mean", alpha=0.3, linestyle='dashed')
+plt.legend()
+
+fig.suptitle("Cyclohexane")
+
+#%%
+fig1, ax1 = plt.subplots(2,2)
+negatives = [42,23,100,54]
+for row in range(2):
+    for col in range(2):
+        neg_ind = negatives[row*2 + col]
+        plot_spectra(ax1[row,col], e_true[neg_ind],i_true[neg_ind], c= 'orange', label= "True")
+        plot_spectra(ax1[row,col], e_pred[neg_ind],i_pred[neg_ind], c= 'purple', label= "Predicted")
+        plot_spectra(ax1[row,col], e_true.mean(axis=0),i_true.mean(axis=0), c= 'grey', label= "Mean", alpha=0.3, linestyle='dashed')
 
 plt.legend()
 
-
-
-
+fig1.suptitle("Cyclohexane")
 
 

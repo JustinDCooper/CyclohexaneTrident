@@ -19,8 +19,8 @@ from sklearn.kernel_ridge import KernelRidge
 from TreeNode import TreeNode
 from BranchNode import BranchNode
 
-
 #%% RootNode
+
 class RootNode(TreeNode):
     def __init__(self, seperations, ID='Root'):
         self.seperations_scaler = StandardScaler().fit(seperations)
@@ -113,3 +113,9 @@ class RootNode(TreeNode):
     @property
     def XAS_ovlps(self):
         return self.__XAS_ovlps
+    
+    #%% Dunder
+    
+    def __getitem__(self, index) -> BranchNode:
+        return TreeNode.__getitem__(self, index)
+        
